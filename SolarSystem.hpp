@@ -1,31 +1,42 @@
-#pragma once
-
 #include <raylib.h>
+#include <string>
+#include <raymath.h>
 #include <vector>
-#include <cmath>
-
 
 class SolarSystem {
-    Vector2 windowSize;
-    const float sun_size = 3.0f;
-    Vector3 center;
+private:
     Camera3D camera;
-
-    std::vector<float> planet_radius, planet_sizes,
-        planet_velocities, planet_angle;
+    Vector3 center;
+    std::vector<float> planet_radius;
+    std::vector<float> planet_velocities;
+    std::vector<float> planet_sizes;
     std::vector<Color> colors;
-
-    const float moon_size = 0.5f, moon_radius = 4.0f,
-        moon_velocity = 10.0f;
-    float moon_angle;
+    std::vector<float> planet_angle;
+    float moon_angle, moon_velocity = 2.7f, moon_radius = 3.5f, moon_size = 0.8f, sun_size = 6.2f;
     int earth_pos;
-
     bool fullscreen;
-    bool cameraControlActive;
 
-    void DrawOrbitRing(float radius, Color color);
+    Vector2 previousMousePosition;
+    bool firstMouseMove = true;
+    float cameraYaw = 0.0f;
+    float cameraPitch = 0.0f;
+
+    std::vector<float> planet_rotation_angles;
+    std::vector<float> planet_rotation_speeds;
+
+    Texture2D backgroundTexture;
+
+    Model sunModel;
+    Model moonModel;
+    std::vector<Model> planetModels;
+    Texture2D sunTexture;
+    Texture2D moonTexture;
+    std::vector<Texture2D> planetTextures;
 
 public:
     SolarSystem();
+    ~SolarSystem();
+    void DrawOrbitRing(float radius, Color color);
+    void UpdateCamera();
     void run();
 };

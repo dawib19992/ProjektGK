@@ -1,5 +1,6 @@
 ﻿#include "solarsystem.hpp"
 
+
 void SolarSystem::DrawOrbitRing(float radius, Color color) {
     const int segments = 100;
     for (int i = 0; i < segments; i++) {
@@ -23,20 +24,23 @@ void SolarSystem::DrawOrbitRing(float radius, Color color) {
 }
 
 SolarSystem::SolarSystem() {
-    Vector2 windowSize = { 1920, 1080 };
+    Vector2 windowSize = { 1280, 960 };
     InitWindow(windowSize.x, windowSize.y, "Solar System 3D");
     SetTargetFPS(60);
 
-    // Ustawienia kamery
-    camera.position = { 50.0f, 50.0f, 50.0f };
+    camera.position = { 0.0f, 50.0f, 100.0f };
     camera.target = { 0.0f, 0.0f, 0.0f };
     camera.up = { 0.0f, 1.0f, 0.0f };
     camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
+    previousMousePosition = { 0, 0 };
+    firstMouseMove = true;
+    cameraYaw = PI;
+    cameraPitch = 0.3f;
+
     center = { 0.0f, 0.0f, 0.0f };
 
-    // Parametry planet
     planet_radius = { 8.0f, 11.0f, 16.5f, 22.5f, 31.0f, 43.0f, 51.5f, 56.5f };
     planet_velocities = { 1.607f, 1.174f, 1.0f, 0.802f, 0.434f, 0.323f, 0.228f, 0.182f };
     planet_sizes = { 1.0f, 1.5f, 2.0f, 1.8f, 6.0f, 5.5f, 2.5f, 2.2f };
@@ -60,12 +64,132 @@ SolarSystem::SolarSystem() {
     }
 
     fullscreen = false;
-    cameraControlActive = false;
+
+    sunTexture = LoadTexture("resources/sun.jpg");
+    moonTexture = LoadTexture("resources/moon.jpg");
+    planetTextures.resize(8);
+    for (int i = 0; i < 8; i++) {
+        std::string filename = "resources/planet" + std::to_string(i + 1) + ".jpg";
+        planetTextures[i] = LoadTexture(filename.c_str());
+        TraceLog(LOG_INFO, "Sun texture loaded: %d", sunTexture.id);
+        TraceLog(LOG_INFO, "Moon texture loaded: %d", moonTexture.id);
+    }
+
+    Mesh sunMesh = GenMeshSphere(sun_size, 32, 32);
+    sunModel = LoadModelFromMesh(sunMesh);
+    sunModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = sunTexture;
+    sunModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
+
+    planetModels.resize(8);
+    for (size_t i = 0; i < 8; i++) {
+        Mesh planetMesh = GenMeshSphere(planet_sizes[i], 32, 32);
+        planetModels[i] = LoadModelFromMesh(planetMesh);
+        planetModels[i].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = planetTextures[i];
+        planetModels[i].materials[0].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
+    }
+
+    Mesh moonMesh = GenMeshSphere(moon_size, 32, 32);
+    moonModel = LoadModelFromMesh(moonMesh);
+    moonModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = moonTexture;
+    moonModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
+
+    backgroundTexture = LoadTexture("resources/background.jpg");
+    if (backgroundTexture.id == 0) {
+        TraceLog(LOG_WARNING, "Failed to load background texture");
+    }
+
+    planet_rotation_angles.assign(8, 0.0f);
+    planet_rotation_speeds = { 0.12f, 0.21f, 0.24f, 0.4f, 0.5f, 0.17f, 0.35f, 0.45f };
+}
+
+SolarSystem::~SolarSystem() {
+    UnloadModel(sunModel);
+    UnloadModel(moonModel);
+    for (auto& model : planetModels) {
+        UnloadModel(model);
+    }
+    UnloadTexture(sunTexture);
+    UnloadTexture(moonTexture);
+    for (auto& texture : planetTextures) {
+        UnloadTexture(texture);
+    }
+    UnloadTexture(backgroundTexture);
+    CloseWindow();
+}
+
+void SolarSystem::UpdateCamera() {
+    if (IsMouseButtonDown(MOUSE_RIGHT_BUTTON)) {
+        Vector2 mousePosition = GetMousePosition();
+
+        if (firstMouseMove) {
+            previousMousePosition = mousePosition;
+            firstMouseMove = false;
+        }
+
+        float deltaX = mousePosition.x - previousMousePosition.x;
+        float deltaY = mousePosition.y - previousMousePosition.y;
+        previousMousePosition = mousePosition;
+
+        const float sensitivity = 0.005f;
+
+        cameraYaw += deltaX * sensitivity;
+        cameraPitch += deltaY * sensitivity;
+
+        cameraPitch = Clamp(cameraPitch, -PI / 2 + 0.1f, PI / 2 - 0.1f);
+
+        float distance = Vector3Distance(camera.position, center);
+        camera.position.x = center.x + distance * cos(cameraPitch) * sin(cameraYaw);
+        camera.position.y = center.y + distance * sin(cameraPitch);
+        camera.position.z = center.z + distance * cos(cameraPitch) * cos(cameraYaw);
+
+        camera.target = center;
+    }
+    else {
+        firstMouseMove = true;
+    }
+    float moveSpeed = 0.5f;
+
+    if (IsKeyDown(KEY_RIGHT)) {
+        Vector3 right = Vector3CrossProduct(Vector3Subtract(camera.target, camera.position), camera.up);
+        right = Vector3Normalize(right);
+        camera.position = Vector3Add(camera.position, Vector3Scale(right, -moveSpeed));
+        camera.target = Vector3Add(camera.target, Vector3Scale(right, -moveSpeed));
+    }
+    if (IsKeyDown(KEY_LEFT)) {
+        Vector3 right = Vector3CrossProduct(Vector3Subtract(camera.target, camera.position), camera.up);
+        right = Vector3Normalize(right);
+        camera.position = Vector3Add(camera.position, Vector3Scale(right, moveSpeed));
+        camera.target = Vector3Add(camera.target, Vector3Scale(right, moveSpeed));
+    }
+    if (IsKeyDown(KEY_UP)) {
+        Vector3 viewDir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+        Vector3 right = Vector3CrossProduct(viewDir, camera.up);
+        Vector3 up = Vector3CrossProduct(right, viewDir);
+        up = Vector3Normalize(up);
+        camera.position = Vector3Add(camera.position, Vector3Scale(up, moveSpeed));
+        camera.target = Vector3Add(camera.target, Vector3Scale(up, moveSpeed));
+    }
+    if (IsKeyDown(KEY_DOWN)) {
+        Vector3 viewDir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+        Vector3 right = Vector3CrossProduct(viewDir, camera.up);
+        Vector3 up = Vector3CrossProduct(right, viewDir);
+        up = Vector3Normalize(up);
+        camera.position = Vector3Add(camera.position, Vector3Scale(up, -moveSpeed));
+        camera.target = Vector3Add(camera.target, Vector3Scale(up, -moveSpeed));
+    }
+
+    if (IsKeyDown(KEY_MINUS)) {
+        Vector3 viewDir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+        camera.position = Vector3Add(camera.position, Vector3Scale(viewDir, moveSpeed * 2));
+    }
+    if (IsKeyDown(KEY_EQUAL)) {
+        Vector3 viewDir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+        camera.position = Vector3Add(camera.position, Vector3Scale(viewDir, -moveSpeed * 2));
+    }
 }
 
 void SolarSystem::run() {
     while (!WindowShouldClose()) {
-        // Obsługa pełnego ekranu
         if (IsKeyPressed(KEY_F11)) {
             fullscreen = !fullscreen;
             if (fullscreen) {
@@ -75,51 +199,32 @@ void SolarSystem::run() {
             }
             else {
                 ToggleFullscreen();
-                SetWindowSize(1920, 1080);
+                SetWindowSize(1280, 960);
             }
         }
 
-        // Sterowanie kamerą tylko przy przytrzymanym 'C'
-        if (IsKeyDown(KEY_C)) {
-            if (!cameraControlActive) {
-                cameraControlActive = true;
-                DisableCursor();
-            }
+        UpdateCamera();
 
-            // Aktualizacja kamery w trybie FREE
-            float rotationSpeed = 0.03f;
-            float moveSpeed = 0.3f;
-
-            // Poruszanie kamerą w globalnych osiach
-            if (IsKeyDown(KEY_W)) camera.position.y += moveSpeed;
-            if (IsKeyDown(KEY_S)) camera.position.y -= moveSpeed;
-            if (IsKeyDown(KEY_A)) camera.position.x -= moveSpeed;
-            if (IsKeyDown(KEY_D)) camera.position.x += moveSpeed;
-
-            Vector2 mouseDelta = GetMouseDelta();
-            camera.target.x += mouseDelta.x * rotationSpeed;
-            camera.target.y -= mouseDelta.y * rotationSpeed;
-        }
-        else if (cameraControlActive) {
-            cameraControlActive = false;
-            EnableCursor();
-        }
-
-        // Aktualizacja pozycji planet
         for (size_t i = 0; i < planet_radius.size(); ++i) {
             planet_angle[i] += planet_velocities[i] * 0.02f;
         }
+        for (size_t i = 0; i < planet_rotation_angles.size(); ++i) {
+            planet_rotation_angles[i] += planet_rotation_speeds[i] * 0.5f;
+        }
+
         moon_angle += moon_velocity * 0.009f;
 
         BeginDrawing();
         ClearBackground(BLACK);
+        DrawTexturePro(backgroundTexture,
+            { 0, 0, (float)backgroundTexture.width, (float)backgroundTexture.height },
+            { 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() },
+            { 0, 0 }, 0.0f, WHITE);
 
         BeginMode3D(camera);
 
-        // Rysowanie Słońca
-        DrawSphere(center, sun_size, YELLOW);
+        DrawModel(sunModel, center, 1.0f, WHITE);
 
-        // Rysowanie planet i orbit
         for (size_t i = 0; i < planet_radius.size(); ++i) {
             DrawOrbitRing(planet_radius[i], GRAY);
 
@@ -128,30 +233,26 @@ void SolarSystem::run() {
                 center.y,
                 center.z + sin(planet_angle[i]) * planet_radius[i]
             };
-            DrawSphere(planet_pos, planet_sizes[i], colors[i]);
+            DrawModelEx(planetModels[i], planet_pos, { 0, 1, 0 }, planet_rotation_angles[i] * RAD2DEG,
+                { 1, 1, 1 }, WHITE);
 
-            // Księżyc dla Ziemi
             if ((int)i == earth_pos) {
                 Vector3 moon_pos = {
                     planet_pos.x + cos(moon_angle) * moon_radius,
                     planet_pos.y,
                     planet_pos.z + sin(moon_angle) * moon_radius
                 };
-                DrawSphere(moon_pos, moon_size, LIGHTGRAY);
+                DrawModel(moonModel, moon_pos, 1.0f, WHITE);
             }
         }
 
         EndMode3D();
 
-        // Informacje sterowania
         DrawText("Solar System 3D", 10, 10, 20, WHITE);
-        DrawText("Hold 'C' to move camera (WASD + Mouse)", 10, 40, 20, WHITE);
-        DrawText("W: Up, S: Down, A: Left, D: Right", 10, 70, 20, WHITE);
-        DrawText("Mouse: Rotate view", 10, 100, 20, WHITE);
-        DrawText("Press F11 to toggle fullscreen", 10, 130, 20, WHITE);
-        DrawFPS(10, 160);
+        DrawText("Arrow keys: Move camera", 10, 40, 20, WHITE);
+        DrawText("+/-: Zoom in/out", 10, 70, 20, WHITE);
+        DrawText("F11 - Toggle fullscreen", 10, 100, 20, WHITE);
 
         EndDrawing();
     }
-    CloseWindow();
 }
